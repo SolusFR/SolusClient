@@ -12,7 +12,7 @@ const data = new PogObject("SimpleFriend", {
 
 // Sauvegarde Locale (Cheaters)
 const cheatersData = new PogObject("SolusCheaters", {
-    list: {} // Format: { "uuid_ou_nom": {name: "xxx", reason: "xxx", premium: true} }
+    list: {} // Format: { "identifiant": {name: "xxx", reason: "xxx", premium: true} }
 }, "cheaters.json");
 
 // Listes Cloud
@@ -20,6 +20,12 @@ let cloudFriends = [];
 let cloudInvincibles = [];
 let cloudCheaters = {};
 let lastUpdate = 0;
+
+// Variables Système
+const gui = new Gui();
+let guiInput = "";
+let actionBarMsg = "";
+let actionBarTimer = 0;
 
 // --- 1. GESTION DU CLOUD ---
 function fetchList(filename, time) {
@@ -38,11 +44,15 @@ function updateCloud(silent = true) {
         cloudFriends = fetchList("default_friend.txt", t);
         cloudInvincibles = fetchList("invincible.txt", t);
         
-        // Fetch Cheater Cloud
         try {
             let cJson = FileLib.getUrlContent(GITHUB_BASE + "cheater.json" + t);
-            if (cJson) cloudCheaters = JSON.parse(cJson);
-        } catch(e) {}
+            if (cJson) {
+                let parsed = JSON.parse(cJson);
+                cloudCheaters = parsed;
+            }
+        } catch(e) {
+            cloudCheaters = {};
+        }
         
         lastUpdate = Date.now();
         if (!silent) ChatLib.chat(prefix + "§aCloud à jour !");
@@ -60,29 +70,23 @@ function getStatus(name) {
     if (!name) return "NONE";
     let n = ChatLib.removeFormatting(name).toLowerCase().trim();
 
-    // 1. Priorité Cheater (Local ou Cloud)
-    let isSuspect = false;
-    // Check Cloud
+    // Check Cloud Cheaters
     for (let id in cloudCheaters) {
-        if (cloudCheaters[id].name.toLowerCase() === n) isSuspect = true;
+        if (cloudCheaters[id].name.toLowerCase() === n) return "CHEATER";
     }
-    // Check Local
+    // Check Local Cheaters
     for (let id in cheatersData.list) {
-        if (cheatersData.list[id].name.toLowerCase() === n) isSuspect = true;
+        if (cheatersData.list[id].name.toLowerCase() === n) return "CHEATER";
     }
-    if (isSuspect) return "CHEATER";
 
-    // 2. Invincibles / Amis
     if (cloudInvincibles.some(x => x.toLowerCase() === n)) return "INVINCIBLE";
     if (data.friends.some(x => x.toLowerCase() === n) || cloudFriends.some(x => x.toLowerCase() === n)) return "FRIEND";
     
     return "NONE";
 }
 
-// Récupère les infos d'un cheater pour l'affichage
 function getCheaterInfo(name) {
     let n = name.toLowerCase().trim();
-    // Priorité local pour les raisons
     for (let id in cheatersData.list) {
         if (cheatersData.list[id].name.toLowerCase() === n) return cheatersData.list[id];
     }
@@ -95,85 +99,116 @@ function getCheaterInfo(name) {
 // --- 3. COMMANDES CHEATER (/lc) ---
 register("command", (...args) => {
     if (!args || args.length === 0) {
+        ChatLib.chat("§c§m---------------------------------------------");
         ChatLib.chat("§c§lSolus Cheater Tracker");
-        ChatLib.chat("§c/lc add <pseudo> [raison] §7- Marquer un cheater");
-        ChatLib.chat("§c/lc remove <pseudo>        §7- Retirer un cheater");
+        ChatLib.chat("§c/lc add <pseudo> [raison] §7- Ajouter");
+        ChatLib.chat("§c/lc remove <pseudo>        §7- Retirer (local)");
+        ChatLib.chat("§c/lc list                   §7- Voir la liste");
+        ChatLib.chat("§c§m---------------------------------------------");
         return;
     }
 
     let action = args[0].toLowerCase();
-    let name = args[1];
-    let reason = args.slice(2).join(" ") || "Aucune raison";
 
-    if (action === "add" && name) {
-        ChatLib.chat(prefix + "§7Vérification du compte Mojang...");
+    if (action === "add" && args[1]) {
+        let nameToAdd = args[1];
+        let reason = args.slice(2).join(" ") || "Non spécifiée";
+        ChatLib.chat(prefix + "§7Recherche de §f" + nameToAdd + "§7...");
+
         new Thread(() => {
             try {
-                // Appel API Mojang pour l'UUID
-                let raw = FileLib.getUrlContent("https://api.mojang.com/users/profiles/minecraft/" + name);
+                let raw = FileLib.getUrlContent("https://api.mojang.com/users/profiles/minecraft/" + nameToAdd);
                 let isPremium = false;
-                let id = name; // Defaut pour les cracks
+                let finalID = nameToAdd.toLowerCase();
+                let finalName = nameToAdd;
 
                 if (raw) {
                     let json = JSON.parse(raw);
                     if (json.id) {
-                        id = json.id; // On stocke l'UUID réel
-                        name = json.name; // On update le pseudo correct (Majuscules)
+                        finalID = json.id;
+                        finalName = json.name;
                         isPremium = true;
                     }
                 }
 
-                cheatersData.list[id] = {
-                    name: name,
+                cheatersData.list[finalID] = {
+                    name: finalName,
                     reason: reason,
                     premium: isPremium,
                     date: new Date().toLocaleDateString()
                 };
                 cheatersData.save();
-                ChatLib.chat(prefix + "§4§l" + name + " §cajouté à la liste noire ! (§f" + (isPremium ? "Premium" : "Crack") + "§c)");
-            } catch(e) { ChatLib.chat(prefix + "§cErreur API."); }
+                ChatLib.chat(prefix + "§4§l" + finalName + " §cajouté ! Type: §f" + (isPremium ? "Premium" : "Crack"));
+            } catch(e) {
+                ChatLib.chat(prefix + "§cErreur lors de l'ajout (API Mojang HS ?).");
+            }
         }).start();
     }
-    else if (action === "remove" && name) {
+    else if (action === "remove" && args[1]) {
+        let target = args[1].toLowerCase();
         let found = false;
         for (let id in cheatersData.list) {
-            if (cheatersData.list[id].name.toLowerCase() === name.toLowerCase()) {
+            if (cheatersData.list[id].name.toLowerCase() === target) {
                 delete cheatersData.list[id];
                 found = true;
+                break;
             }
         }
         if (found) {
             cheatersData.save();
-            ChatLib.chat(prefix + "§aJoueur " + name + " retiré des cheaters.");
-        } else ChatLib.chat(prefix + "§cNon trouvé en local.");
+            ChatLib.chat(prefix + "§a" + args[1] + " retiré des cheaters locaux.");
+        } else {
+            ChatLib.chat(prefix + "§c" + args[1] + " n'est pas dans ta liste locale.");
+        }
+    }
+    else if (action === "list") {
+        ChatLib.chat("§c§lListe des suspects Solus :");
+        // Local
+        let localKeys = Object.keys(cheatersData.list);
+        if (localKeys.length > 0) {
+            ChatLib.chat("§e[Local]");
+            localKeys.forEach(id => {
+                let p = cheatersData.list[id];
+                ChatLib.chat(" §7- §c" + p.name + " §8(" + (p.premium ? "P" : "C") + ") §7: §f" + p.reason);
+            });
+        }
+        // Cloud
+        let cloudKeys = Object.keys(cloudCheaters);
+        if (cloudKeys.length > 0) {
+            ChatLib.chat("§6[Cloud]");
+            cloudKeys.forEach(id => {
+                let p = cloudCheaters[id];
+                ChatLib.chat(" §7- §4" + p.name + " §8(" + (p.premium ? "P" : "C") + ") §7: §f" + p.reason);
+            });
+        }
+        if (localKeys.length === 0 && cloudKeys.length === 0) ChatLib.chat("§7Aucun suspect enregistré.");
     }
 }).setName("lc");
 
 // --- 4. COMMANDES AMIS (/lf) ---
 register("command", (...args) => {
     if (!args || args.length === 0) {
+        ChatLib.chat("§2§m---------------------------------------------");
         ChatLib.chat("§2/lf add/remove <pseudo> | /lf pvp | /lf force");
+        ChatLib.chat("§2§m---------------------------------------------");
         return;
     }
     let action = args[0].toLowerCase();
-    let pseudo = args[1];
-
-    if (action === "add" && pseudo) {
-        if (!data.friends.includes(pseudo)) {
-            data.friends.push(pseudo); data.save();
-            ChatLib.chat(prefix + "§a" + pseudo + " ajouté.");
+    if (action === "add" && args[1]) {
+        if (!data.friends.includes(args[1])) {
+            data.friends.push(args[1]); data.save();
+            ChatLib.chat(prefix + "§a" + args[1] + " ajouté aux amis.");
         }
-    }
-    else if (action === "remove" && pseudo) {
-        data.friends = data.friends.filter(x => x.toLowerCase() !== pseudo.toLowerCase());
+    } else if (action === "remove" && args[1]) {
+        data.friends = data.friends.filter(f => f.toLowerCase() !== args[1].toLowerCase());
         data.save();
-        ChatLib.chat(prefix + "§c" + pseudo + " retiré.");
-    }
-    else if (action === "pvp") {
+        ChatLib.chat(prefix + "§c" + args[1] + " retiré.");
+    } else if (action === "pvp") {
         data.pvpEnabled = !data.pvpEnabled; data.save();
-        ChatLib.chat(prefix + "PvP Ami : " + (data.pvpEnabled ? "§cON" : "§aOFF"));
+        ChatLib.chat(prefix + "PvP Ami : " + (data.pvpEnabled ? "§aON" : "§aOFF"));
+    } else if (action === "force") {
+        updateCloud(false);
     }
-    else if (action === "force") updateCloud(false);
 }).setName("localfriend").setAliases("lf");
 
 // --- 5. GAMEPLAY & VISUELS ---
@@ -204,8 +239,8 @@ register("renderWorld", () => {
         
         if (st === "CHEATER") {
             let info = getCheaterInfo(p.getName());
+            if (!info) return;
             let type = info.premium ? "§b[P]" : "§7[C]";
-            // Fait clignoter le tag "CHEATER"
             let tag = (Date.now() % 1000 < 500) ? "§4§l⚠ CHEATER ⚠" : "§c§l⚠ CHEATER ⚠";
             Tessellator.drawString(tag + " " + type, x, y + 0.3, z, 0, true, 0.04, false);
             Tessellator.drawString("§f" + info.reason, x, y, z, 0, true, 0.02, false);
@@ -230,7 +265,7 @@ register("tick", () => {
 
         let netHandler = Client.getMinecraft().func_147114_u();
         let playerMap = netHandler.func_175106_d(); 
-
+        
         for (let info of playerMap) {
             let name = info.func_178845_a().getName();
             let st = getStatus(name);
