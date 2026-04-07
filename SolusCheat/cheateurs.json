@@ -1,3 +1,8 @@
 {
-    "players": []
+    "players": [
+        {
+            "name": "DarKLapin",
+            "uuid": "e2c2bc0f-89e0-4d88-a753-5fc63431bb0e"
+        }
+    ]
 }
