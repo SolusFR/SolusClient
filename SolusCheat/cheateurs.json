@@ -1,3 +1,8 @@
 {
-    "players": []
+    "players": [
+        {
+            "name": "FuzeIII",
+            "uuid": "96e76f2a-d77d-4cb7-91a0-3eba67e74397"
+        }
+    ]
 }
